@@ -1,0 +1,338 @@
+---
+title: "sta360hw6"
+output: html_document
+date: "2024-03-06"
+---
+
+```{r}
+library(tidyverse)
+library(coda)
+```
+
+
+```{r}
+glucose = read.csv('gluc.csv')
+glucose = glucose$X
+```
+
+# 2a
+```{r}
+hist(glucose)
+```
+This differs from a normal distributions because its tails are heavier and it appears to be skewed to the right.
+
+
+# 2c
+```{r}
+a <- 1
+b <- 1
+mu_0 <- 120
+tau_0sq <- 200
+sigma_0sq <- 1000
+nu_0 <- 10
+
+S <- 10000
+thetas <- NULL
+theta1 <- mean(glucose)
+theta2 <- mean(glucose)
+
+sigma1 <- sd(glucose)
+sigma2 <-sd(glucose)
+
+glucose_pred <- NULL
+p <- 0.5
+
+for (s in 1:S){
+  px1 <- dnorm(glucose, theta1, sigma1)*p
+  px2 <- dnorm(glucose, theta2, sigma2)*(1-p)
+  
+  Xs <- rbinom(length(glucose), 1, px1/(px1+px2))
+  
+  n1 <- sum(Xs)
+  n2 <- length(glucose)-sum(Xs)
+  
+  glucose1s <- glucose[Xs==1]
+  glucose2s <- glucose[Xs==0]
+  
+  g_avg1 <- mean(glucose1s)
+  g_avg2 <- mean(glucose2s)
+  
+  g_var1 <- var(glucose1s)
+  g_var2 <- var(glucose2s)
+  
+  p <- rbeta(1, a+n1, b+n2)
+  
+  tau_n1sq <- 1/((1/tau_0sq)+(n1/sigma1^2))
+  tau_n2sq <- 1/((1/tau_0sq)+(n2/sigma2^2))
+  
+  mu_n1 <- ((1/tau_0sq)*mu_0 + (n1/(sigma1^2))*g_avg1)*(tau_n1sq)
+  mu_n2 <- ((1/tau_0sq)*mu_0 + (n2/(sigma2^2))*g_avg2)*(tau_n2sq)
+  
+  theta1 <- rnorm(1, mu_n1, sqrt(tau_n1sq))
+  theta2 <- rnorm(1, mu_n2, sqrt(tau_n2sq))
+  
+  
+  
+  nu_n1 <- nu_0+n1
+  nu_n2 <- nu_0+n2
+  
+  s_n1sq <- (nu_0*sigma_0sq+(n1-1)*g_var1+n1*(g_avg1-theta1)^2)/nu_n1
+  s_n2sq <- (nu_0*sigma_0sq+(n2-1)*g_var2+n2*(g_avg2-theta2)^2)/nu_n2
+  
+  sigma1 <- sqrt(1/rgamma(1, nu_n1/2, s_n1sq*nu_n1/2))
+  sigma2 <- sqrt(1/rgamma(1, nu_n2/2, s_n2sq*nu_n2/2))
+  
+  
+  thetas <- rbind(thetas, c(theta1, theta2))
+  x <- rbinom(1, 1, p)
+  if(x){
+    glucose_pred <- rbind(glucose_pred, rnorm(1, theta1, sigma1))
+  }
+  else{
+    glucose_pred <- rbind(glucose_pred, rnorm(1, theta2, sigma2))
+  }
+}
+```
+
+```{r}
+ac_df <- thetas %>%
+  as.data.frame() %>%
+  mutate(min = ifelse(V1<V2, V1, V2),
+         max = ifelse(V1>V2, V1, V2))
+
+acf(ac_df$min)
+
+acf(ac_df$max)
+  
+```
+
+```{r}
+ac_df %>%
+  summarise(effectiveSize(min),
+            effectiveSize(max))
+```
+
+# 2d
+```{r}
+glucose <- as.data.frame(glucose)
+glucose %>%
+  ggplot(aes(x=glucose, col="data"))+
+  geom_density()+
+  geom_density(data=glucose_pred, aes(x= V1, col="glucose_pred"))
+```
+
+The density matches the distribution from part a very closely, meaning the two-component mixture model is a good choice of model.
+
+
+
+
+
+# 3a
+```{r}
+a_theta <- 120
+b_theta <- 10
+a_rho <- 10
+b_rho <- 10
+
+S = 1000
+theta_prior <- numeric(S)
+theta_a_prior <- numeric(S)
+theta_b_prior <- numeric(S)
+rho_prior <- numeric(S)
+
+for (s in 1:S) {
+  
+#simulate theta^(s)
+theta_prior[s] = rgamma(1, a_theta, b_theta)
+
+#simulate rho^(s)
+rho_prior[s] = rgamma(1, a_rho, b_rho)
+
+
+theta_a_prior[s] <- theta_prior[s]
+theta_b_prior[s] <- theta_prior[s] * rho_prior[s]
+  
+}
+
+```
+
+```{r}
+plot(theta_a_prior, theta_b_prior)
+```
+There does not seem to be any correlation between $\theta_A$ and $\theta_B$ in the prior, which makes sense because we are told that $\theta$ and $\rho$ are independent in the prior.
+
+
+
+# 3c
+```{r}
+#initialize
+ya <- c(12, 9, 12, 14, 13, 13, 15, 8, 15, 6)
+yb <- c(11, 11, 10, 9, 9, 8, 7, 10, 6, 8, 8, 9, 7)
+
+sum_ya <- sum(ya)
+sum_yb <- sum(yb)
+
+theta_0 = rgamma(1, a_theta, b_theta)
+rho_0 = rgamma(1, a_rho, b_rho)
+
+S = 5000
+
+theta_S <- numeric(S+1)
+rho_S <- numeric(S+1)
+
+theta_S[1] = theta_0
+rho_S[1] = rho_0
+
+for (s in 1:S) {
+  
+#simulate theta^(s+1)
+theta_S[s+1] = rgamma(1, sum_ya + sum_yb + a_theta, 10 + 13*rho_S[s])
+
+#simulate rho^(s+1)
+#theta_list = c(rep(theta_S[s+1], length(school1data)))
+rho_S[s+1] = rgamma(1, sum_yb + a_rho, 13*theta_S[s+1]+b_rho)
+  
+}
+```
+
+```{r}
+plot(x=theta_S, type = "l")
+```
+
+```{r}
+theta_a = theta_S
+theta_b = theta_S * rho_S
+plot(theta_a, theta_b)
+```
+
+```{r}
+hist(theta_a)
+hist(theta_b)
+hist(rho_S)
+```
+
+
+```{r}
+theta_b_minus_a <- numeric(S+1)
+for (s in 1:S){
+  
+  theta_b_minus_a[s] <- theta_b[s]-theta_a[s]
+  
+}
+
+
+theta_b_minus_a_mean <- mean(theta_b-theta_a)
+print("MCMC estimate of posterior mean of theta_B - theta_A:")
+print(theta_b_minus_a_mean)
+print("------------")
+print("95% CI:")
+print(quantile(theta_b_minus_a, c(.025, .975)))
+```
+
+
+
+
+
+
+
+# 3d
+```{r}
+a_theta <- 120
+b_theta <- 10
+a_rho <- 45
+b_rho <- 45
+
+S = 1000
+theta_prior <- numeric(S)
+theta_a_prior <- numeric(S)
+theta_b_prior <- numeric(S)
+rho_prior <- numeric(S)
+
+for (s in 1:S) {
+  
+#simulate theta^(s)
+theta_prior[s] = rgamma(1, a_theta, b_theta)
+
+#simulate rho^(s)
+rho_prior[s] = rgamma(1, a_rho, b_rho)
+
+
+theta_a_prior[s] <- theta_prior[s]
+theta_b_prior[s] <- theta_prior[s] * rho_prior[s]
+  
+}
+
+```
+
+```{r}
+plot(theta_a_prior, theta_b_prior)
+```
+Again, no correlation.
+
+
+```{r}
+#initialize
+ya <- c(12, 9, 12, 14, 13, 13, 15, 8, 15, 6)
+yb <- c(11, 11, 10, 9, 9, 8, 7, 10, 6, 8, 8, 9, 7)
+
+sum_ya <- sum(ya)
+sum_yb <- sum(yb)
+
+theta_0 = rgamma(1, a_theta, b_theta)
+rho_0 = rgamma(1, a_rho, b_rho)
+
+S = 5000
+
+theta_S <- numeric(S+1)
+rho_S <- numeric(S+1)
+
+theta_S[1] = theta_0
+rho_S[1] = rho_0
+
+for (s in 1:S) {
+  
+#simulate theta^(s+1)
+theta_S[s+1] = rgamma(1, sum_ya + sum_yb + a_theta, 10 + 13*rho_S[s])
+
+#simulate rho^(s+1)
+#theta_list = c(rep(theta_S[s+1], length(school1data)))
+rho_S[s+1] = rgamma(1, sum_yb + a_rho, 13*theta_S[s]+b_rho)
+  
+}
+```
+
+```{r}
+plot(x=theta_S, type = "l")
+```
+
+```{r}
+theta_a = theta_S
+theta_b = theta_S * rho_S
+plot(theta_a, theta_b)
+```
+
+```{r}
+hist(theta_a)
+hist(theta_b)
+hist(rho_S)
+```
+
+
+```{r}
+theta_b_minus_a <- numeric(S+1)
+for (s in 1:S){
+  
+  theta_b_minus_a[s] <- theta_b[s]-theta_a[s]
+  
+}
+
+
+theta_b_minus_a_mean <- mean(theta_b-theta_a)
+print("MCMC estimate of posterior mean of theta_B - theta_A:")
+print(theta_b_minus_a_mean)
+print("------------")
+print("95% CI:")
+print(quantile(theta_b_minus_a, c(.025, .975)))
+```
+By changing the prior, the confidence interval for the estimated difference between $\theta_B$ and $\theta_A$ became closer to 0.
+
