@@ -1,6 +1,8 @@
 ---
 title: "sta360hw6"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2024-03-06"
 ---
 
@@ -115,6 +117,7 @@ ac_df %>%
 # 2d
 ```{r}
 glucose <- as.data.frame(glucose)
+glucose_pred <- as.data.frame(glucose_pred)
 glucose %>%
   ggplot(aes(x=glucose, col="data"))+
   geom_density()+
